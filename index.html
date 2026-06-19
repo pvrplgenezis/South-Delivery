@@ -1,0 +1,64 @@
+
+<?php
+require_once __DIR__ . '/config.php';
+function db(): PDO {
+    static $pdo = null;
+    if ($pdo instanceof PDO) return $pdo;
+
+    $dbPath = SQLITE_DB_PATH;
+    $dir = dirname($dbPath);
+    if (!is_dir($dir)) mkdir($dir, 0777, true);
+
+    $needInit = !file_exists($dbPath);
+    $pdo = new PDO('sqlite:' . $dbPath);
+    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+    $pdo->exec('PRAGMA foreign_keys = ON');
+
+    if ($needInit) {
+        initialize_sqlite($pdo);
+    }
+    return $pdo;
+}
+
+function initialize_sqlite(PDO $pdo): void {
+    $sql = <<<SQL
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  login TEXT NOT NULL UNIQUE,
+  email TEXT NOT NULL UNIQUE,
+  full_name TEXT NOT NULL,
+  password_hash TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'user' CHECK(role IN ('user','admin')),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS orders (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  order_no TEXT NOT NULL UNIQUE,
+  user_id INTEGER NOT NULL,
+  sender_name TEXT NOT NULL,
+  sender_phone TEXT NOT NULL,
+  sender_city TEXT NOT NULL,
+  recipient_name TEXT NOT NULL,
+  recipient_station TEXT NOT NULL,
+  cargo_type TEXT NOT NULL,
+  weight_kg REAL NOT NULL,
+  size_cm TEXT NOT NULL,
+  declared_value TEXT NOT NULL,
+  delivery_type TEXT NOT NULL,
+  estimated_price REAL,
+  status TEXT NOT NULL DEFAULT 'Принят' CHECK(status IN ('Принят','В пути','На станции','Выдан')),
+  comment_admin TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id);
+CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
+SQL;
+    $pdo->exec($sql);
+
+    $hash = password_hash('admin123', PASSWORD_DEFAULT);
+    $stmt = $pdo->prepare('INSERT OR IGNORE INTO users (login,email,full_name,password_hash,role) VALUES (?,?,?,?,?)');
+    $stmt->execute(['admin','admin@southdelivery.local','Администратор',$hash,'admin']);
+}
